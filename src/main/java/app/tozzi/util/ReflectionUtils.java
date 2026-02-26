@@ -30,7 +30,8 @@ public class ReflectionUtils {
         var resultMap = new HashMap<Class<?>, Map<String, Field>>();
         var visited = new HashSet<Class<?>>();
         computeIdFieldsRecursive("", rootClass, resultMap, visited);
-        return resultMap;
+        resultMap.replaceAll((k, v) -> Collections.unmodifiableMap(v));
+        return Collections.unmodifiableMap(resultMap);
     }
 
     private static void computeIdFieldsRecursive(String prefix, Class<?> currentClass, Map<Class<?>, Map<String, Field>> resultMap, Set<Class<?>> visited) {
@@ -49,10 +50,8 @@ public class ReflectionUtils {
         for (var f : allFields) {
             if (embeddedID != null && f.equals(embeddedID)) {
                 var embeddableType = getType(embeddedID);
-                for (var ef : FieldUtils.getAllFieldsList(embeddableType)) {
-                    var path = prefix + embeddedID.getName() + "." + ef.getName();
-                    localIdMap.put(path, ef);
-                }
+                FieldUtils.getAllFieldsList(embeddableType).forEach(ef ->
+                        localIdMap.put(prefix + embeddedID.getName() + "." + ef.getName(), ef));
             } else if (embeddedID == null && f.isAnnotationPresent(Id.class)) {
                 localIdMap.put(prefix + f.getName(), f);
             }
@@ -62,13 +61,9 @@ public class ReflectionUtils {
             resultMap.computeIfAbsent(currentClass, k -> new HashMap<>()).putAll(localIdMap);
         }
 
-        for (var f : allFields) {
-            if (isRelation(f)) {
-                var targetType = getType(f);
-                var newPrefix = prefix + f.getName() + ".";
-                computeIdFieldsRecursive(newPrefix, targetType, resultMap, visited);
-            }
-        }
+        allFields.stream()
+                .filter(ReflectionUtils::isRelation)
+                .forEach(f -> computeIdFieldsRecursive(prefix + f.getName() + ".", getType(f), resultMap, visited));
     }
 
     private static boolean isRelation(Field f) {
@@ -82,7 +77,7 @@ public class ReflectionUtils {
         return SEARCHABLE_CACHE.computeIfAbsent(beanClass, key -> {
             var res = new HashMap<String, Pair<Searchable, Field>>();
             getFields("", beanClass, Searchable.class, NestedSearchable.class, res, true);
-            return res;
+            return Collections.unmodifiableMap(res);
         });
     }
 
@@ -90,7 +85,7 @@ public class ReflectionUtils {
         return PROJECTABLE_CACHE.computeIfAbsent(beanClass, key -> {
             var res = new HashMap<String, Pair<Projectable, Field>>();
             getFields("", beanClass, Projectable.class, NestedProjectable.class, res, true);
-            return res;
+            return Collections.unmodifiableMap(res);
         });
     }
 
@@ -135,7 +130,7 @@ public class ReflectionUtils {
                     }
                 }
             }
-            throw new JPASearchException("Invalid searchable type " + f.getType());
+            throw new JPASearchException("Invalid searchable type for field '" + f.getName() + "' declared in " + f.getDeclaringClass().getName() + ": " + f.getType());
         }
 
         return type;
